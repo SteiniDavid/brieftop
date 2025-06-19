@@ -170,7 +170,7 @@ func (d *Display) renderHeader(width int) {
 	d.drawHorizontalLine(2, 2, width-4, "─", d.colorScheme.Border)
 	
 	// Column headers with better spacing
-	columnHeaders := fmt.Sprintf("┏ %-6s │ %6s │ %8s │ %6s │ %s", 
+	columnHeaders := fmt.Sprintf("  %-7s %7s %10s %6s %s", 
 		"PID", "CPU", "MEMORY", "CHILD", "PROCESS NAME")
 	d.drawText(2, 3, width-4, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
 	
@@ -194,116 +194,75 @@ func (d *Display) renderProcesses(width, height int) {
 		// Enhanced status icon
 		statusIcon := GetStatusIcon(proc.CPUPercent, proc.Expanded, childCount > 0)
 		
-		// CPU and Memory progress bars
-		cpuBar := CreateProgressBar(proc.CPUPercent, 8)
-		memoryPercent := (proc.MemoryMB / 1000) * 100 // Rough percentage for visual
-		if memoryPercent > 100 {
-			memoryPercent = 100
-		}
-		memoryBar := CreateProgressBar(memoryPercent, 8)
-		
 		// Color based on resource usage
 		level := d.monitor.GetResourceLevel(proc.CPUPercent, proc.MemoryMB)
 		color := d.colorScheme.GetProcessColor(level)
-		progressColor := d.colorScheme.GetProgressBarColor(proc.CPUPercent)
-		
 		style := d.colorScheme.GetStyle(color, isSelected)
-		progressStyle := d.colorScheme.GetStyle(progressColor, false)
 		
 		// Calculate available space for name
-		fixedColumnsWidth := 55  // Increased for progress bars
-		availableNameWidth := width - fixedColumnsWidth
+		availableNameWidth := width - 45
 		if availableNameWidth < 20 {
 			availableNameWidth = 20
 		}
 		
-		// Main process line with enhanced formatting
-		processLine := fmt.Sprintf("%s %-6d │ %6.1f%% │ %8.1fMB │ %5d │ %s", 
+		// Main process line with proper formatting
+		processLine := fmt.Sprintf("%s %-6d %6.1f%% %9.1fMB %5d %s", 
 			statusIcon, proc.PID, proc.CPUPercent, proc.MemoryMB, childCount,
 			truncateString(proc.Name, availableNameWidth))
 
 		d.drawText(3, currentY, width-6, processLine, style)
-		
-		// Draw progress bars
-		d.drawText(13, currentY, len(cpuBar), cpuBar, progressStyle)
-		d.drawText(35, currentY, len(memoryBar), memoryBar, progressStyle)
-		
 		currentY++
 
 		if proc.Expanded && childCount > 0 {
 			// First show the parent process itself
 			if currentY < startY + maxRows {
-				parentPrefix := "  ├─●"  // Parent indicator with dot
+				parentPrefix := "    ├─●"  // Parent indicator
 				parentStyle := d.colorScheme.GetStyle(d.colorScheme.Text, false)
 				
-				// Parent progress bars
-				parentCpuBar := CreateProgressBar(proc.ParentCPU, 6)
-				parentMemPercent := (float64(proc.ParentMemory)/(1024*1024)/1000) * 100
-				if parentMemPercent > 100 {
-					parentMemPercent = 100
-				}
-				parentMemBar := CreateProgressBar(parentMemPercent, 6)
-				
-				availableParentNameWidth := width - 60
+				availableParentNameWidth := width - 50
 				if availableParentNameWidth < 15 {
 					availableParentNameWidth = 15
 				}
 				
-				parentLine := fmt.Sprintf("%s %-5d %6.1f%% %8.1fMB      %s (parent)", 
+				parentLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (parent)", 
 					parentPrefix, proc.PID, proc.ParentCPU, float64(proc.ParentMemory)/(1024*1024),
 					truncateString(proc.Name, availableParentNameWidth-9))
 				
 				d.drawText(3, currentY, width-6, parentLine, parentStyle)
-				// Draw parent progress bars
-				parentProgressStyle := d.colorScheme.GetStyle(d.colorScheme.GetProgressBarColor(proc.ParentCPU), false)
-				d.drawText(15, currentY, len(parentCpuBar), parentCpuBar, parentProgressStyle)
-				d.drawText(35, currentY, len(parentMemBar), parentMemBar, parentProgressStyle)
 				currentY++
 			}
 			
-			// Then show all children with enhanced styling
+			// Then show all children
 			for _, child := range proc.Children {
 				if currentY >= startY + maxRows {
 					break
 				}
 				
-				// Enhanced visual indicators
+				// Visual indicators for different types
 				var prefix string
 				var childStyle tcell.Style
 				var typeLabel string
 				
 				if child.IsThread {
-					prefix = "  ╠═⚡"  // Thread with lightning
+					prefix = "    ╠═"  // Thread indicator
 					childStyle = d.colorScheme.GetStyle(d.colorScheme.Thread, false)
 					typeLabel = "thread"
 				} else {
-					prefix = "  ├─⚙️"  // Child with gear
+					prefix = "    ├─"  // Child process indicator
 					childStyle = d.colorScheme.GetStyle(d.colorScheme.ChildProcess, false)
 					typeLabel = "child"
 				}
 				
-				// Child progress bars
-				childCpuBar := CreateProgressBar(child.CPUPercent, 6)
-				childMemPercent := (float64(child.MemoryBytes)/(1024*1024)/1000) * 100
-				if childMemPercent > 100 {
-					childMemPercent = 100
-				}
-				childMemBar := CreateProgressBar(childMemPercent, 6)
-				
-				availableChildNameWidth := width - 65
+				availableChildNameWidth := width - 55
 				if availableChildNameWidth < 15 {
 					availableChildNameWidth = 15
 				}
 				
-				childLine := fmt.Sprintf("%s %-5d %6.1f%% %8.1fMB      %s (%s)", 
+				childLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (%s)", 
 					prefix, child.PID, child.CPUPercent, float64(child.MemoryBytes)/(1024*1024),
 					truncateString(child.Name, availableChildNameWidth-len(typeLabel)-3), typeLabel)
 				
 				d.drawText(3, currentY, width-6, childLine, childStyle)
-				// Draw child progress bars
-				childProgressStyle := d.colorScheme.GetStyle(d.colorScheme.GetProgressBarColor(child.CPUPercent), false)
-				d.drawText(17, currentY, len(childCpuBar), childCpuBar, childProgressStyle)
-				d.drawText(37, currentY, len(childMemBar), childMemBar, childProgressStyle)
 				currentY++
 			}
 		}
