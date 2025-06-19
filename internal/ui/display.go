@@ -3,6 +3,7 @@ package ui
 import (
 	"cpu-monitor/internal/monitor"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,6 +137,9 @@ func (d *Display) render() {
 	d.screen.Clear()
 	width, height := d.screen.Size()
 
+	// Draw main border
+	d.drawBorder(0, 0, width, height)
+	
 	d.renderHeader(width)
 	d.renderProcesses(width, height)
 	d.renderFooter(width, height)
@@ -144,23 +148,39 @@ func (d *Display) render() {
 }
 
 func (d *Display) renderHeader(width int) {
-	headerText := fmt.Sprintf("CPU Monitor - Processes using >%.1f%% CPU or >%dMB RAM", 
+	// Header with better formatting and icons
+	status := "✓ RUNNING"
+	statusColor := d.colorScheme.Success
+	if d.paused {
+		status = "⏸ PAUSED"
+		statusColor = d.colorScheme.Warning
+	}
+	
+	headerText := fmt.Sprintf("⚙️  CPU Monitor - Processes >%.1f%% CPU or >%dMB RAM", 
 		d.config.GetCPUThreshold(), d.config.GetMemoryThreshold()/(1024*1024))
 	
-	if d.paused {
-		headerText += " [PAUSED]"
-	}
-
-	d.drawText(0, 0, width, headerText, d.colorScheme.GetStyle(d.colorScheme.Header, false))
+	// Main header
+	d.drawText(2, 1, width-4, headerText, d.colorScheme.GetStyle(d.colorScheme.Header, false))
 	
-	// New column order: PID, CPU, MEMORY, CHILDREN, NAME (expanded to fill remaining space)
-	columnHeaders := fmt.Sprintf("%-8s %8s %10s %8s %s", "PID", "CPU", "MEMORY", "CHILDREN", "NAME")
-	d.drawText(0, 1, width, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Header, false))
+	// Status indicator
+	statusX := width - len(status) - 3
+	d.drawText(statusX, 1, len(status), status, d.colorScheme.GetStyle(statusColor, false))
+	
+	// Separator line
+	d.drawHorizontalLine(2, 2, width-4, "─", d.colorScheme.Border)
+	
+	// Column headers with better spacing
+	columnHeaders := fmt.Sprintf("┏ %-6s │ %6s │ %8s │ %6s │ %s", 
+		"PID", "CPU", "MEMORY", "CHILD", "PROCESS NAME")
+	d.drawText(2, 3, width-4, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
+	
+	// Header separator
+	d.drawHorizontalLine(2, 4, width-4, "━", d.colorScheme.Border)
 }
 
 func (d *Display) renderProcesses(width, height int) {
-	startY := 3
-	maxRows := height - 5
+	startY := 5  // Start after enhanced header
+	maxRows := height - 8  // Leave space for footer
 	currentY := startY
 
 	for i, proc := range d.processes {
@@ -169,86 +189,121 @@ func (d *Display) renderProcesses(width, height int) {
 		}
 
 		isSelected := i == d.selectedIndex
-
+		childCount := len(proc.Children)
+		
+		// Enhanced status icon
+		statusIcon := GetStatusIcon(proc.CPUPercent, proc.Expanded, childCount > 0)
+		
+		// CPU and Memory progress bars
+		cpuBar := CreateProgressBar(proc.CPUPercent, 8)
+		memoryPercent := (proc.MemoryMB / 1000) * 100 // Rough percentage for visual
+		if memoryPercent > 100 {
+			memoryPercent = 100
+		}
+		memoryBar := CreateProgressBar(memoryPercent, 8)
+		
+		// Color based on resource usage
 		level := d.monitor.GetResourceLevel(proc.CPUPercent, proc.MemoryMB)
 		color := d.colorScheme.GetProcessColor(level)
+		progressColor := d.colorScheme.GetProgressBarColor(proc.CPUPercent)
+		
 		style := d.colorScheme.GetStyle(color, isSelected)
-
-		childCount := len(proc.Children)
-		expandIndicator := ""
-		if childCount > 0 {
-			if proc.Expanded {
-				expandIndicator = "▼"
-			} else {
-				expandIndicator = "▶"
-			}
-		}
-
-		// Calculate available space for name (total width - fixed columns)
-		// Format: [▼]PID(8) CPU(9) MEMORY(11) CHILDREN(9) + spaces = ~40 chars
-		fixedColumnsWidth := 40
+		progressStyle := d.colorScheme.GetStyle(progressColor, false)
+		
+		// Calculate available space for name
+		fixedColumnsWidth := 55  // Increased for progress bars
 		availableNameWidth := width - fixedColumnsWidth
 		if availableNameWidth < 20 {
-			availableNameWidth = 20 // minimum name width
+			availableNameWidth = 20
 		}
 		
-		processLine := fmt.Sprintf("%s%-7d %7.1f%% %9.1fMB %7d %s", 
-			expandIndicator, proc.PID, proc.CPUPercent, proc.MemoryMB, childCount,
+		// Main process line with enhanced formatting
+		processLine := fmt.Sprintf("%s %-6d │ %6.1f%% │ %8.1fMB │ %5d │ %s", 
+			statusIcon, proc.PID, proc.CPUPercent, proc.MemoryMB, childCount,
 			truncateString(proc.Name, availableNameWidth))
 
-		d.drawText(0, currentY, width, processLine, style)
+		d.drawText(3, currentY, width-6, processLine, style)
+		
+		// Draw progress bars
+		d.drawText(13, currentY, len(cpuBar), cpuBar, progressStyle)
+		d.drawText(35, currentY, len(memoryBar), memoryBar, progressStyle)
+		
 		currentY++
 
 		if proc.Expanded && childCount > 0 {
-			// First show the parent process itself as the first entry
+			// First show the parent process itself
 			if currentY < startY + maxRows {
-				parentPrefix := "  ├─ "  // Parent process indicator
+				parentPrefix := "  ├─●"  // Parent indicator with dot
 				parentStyle := d.colorScheme.GetStyle(d.colorScheme.Text, false)
 				
-				// Calculate available space for parent name
-				parentFixedWidth := 35
-				parentNameWidth := width - parentFixedWidth
-				if parentNameWidth < 15 {
-					parentNameWidth = 15
+				// Parent progress bars
+				parentCpuBar := CreateProgressBar(proc.ParentCPU, 6)
+				parentMemPercent := (float64(proc.ParentMemory)/(1024*1024)/1000) * 100
+				if parentMemPercent > 100 {
+					parentMemPercent = 100
+				}
+				parentMemBar := CreateProgressBar(parentMemPercent, 6)
+				
+				availableParentNameWidth := width - 60
+				if availableParentNameWidth < 15 {
+					availableParentNameWidth = 15
 				}
 				
-				parentLine := fmt.Sprintf("%s%-5d %7.1f%% %9.1fMB %s (parent)", 
+				parentLine := fmt.Sprintf("%s %-5d %6.1f%% %8.1fMB      %s (parent)", 
 					parentPrefix, proc.PID, proc.ParentCPU, float64(proc.ParentMemory)/(1024*1024),
-					truncateString(proc.Name, parentNameWidth-9)) // -9 for " (parent)"
+					truncateString(proc.Name, availableParentNameWidth-9))
 				
-				d.drawText(0, currentY, width, parentLine, parentStyle)
+				d.drawText(3, currentY, width-6, parentLine, parentStyle)
+				// Draw parent progress bars
+				parentProgressStyle := d.colorScheme.GetStyle(d.colorScheme.GetProgressBarColor(proc.ParentCPU), false)
+				d.drawText(15, currentY, len(parentCpuBar), parentCpuBar, parentProgressStyle)
+				d.drawText(35, currentY, len(parentMemBar), parentMemBar, parentProgressStyle)
 				currentY++
 			}
 			
-			// Then show all children
+			// Then show all children with enhanced styling
 			for _, child := range proc.Children {
 				if currentY >= startY + maxRows {
 					break
 				}
 				
-				// Different visual indicators for threads vs child processes
+				// Enhanced visual indicators
 				var prefix string
 				var childStyle tcell.Style
+				var typeLabel string
+				
 				if child.IsThread {
-					prefix = "  ╠═ "  // Thread indicator
+					prefix = "  ╠═⚡"  // Thread with lightning
 					childStyle = d.colorScheme.GetStyle(d.colorScheme.Thread, false)
+					typeLabel = "thread"
 				} else {
-					prefix = "  ├─ "  // Child process indicator
+					prefix = "  ├─⚙️"  // Child with gear
 					childStyle = d.colorScheme.GetStyle(d.colorScheme.ChildProcess, false)
+					typeLabel = "child"
 				}
 				
-				// Calculate available space for child name
-				childFixedWidth := 35 // prefix + PID + CPU + Memory + spaces
-				childNameWidth := width - childFixedWidth
-				if childNameWidth < 15 {
-					childNameWidth = 15
+				// Child progress bars
+				childCpuBar := CreateProgressBar(child.CPUPercent, 6)
+				childMemPercent := (float64(child.MemoryBytes)/(1024*1024)/1000) * 100
+				if childMemPercent > 100 {
+					childMemPercent = 100
+				}
+				childMemBar := CreateProgressBar(childMemPercent, 6)
+				
+				availableChildNameWidth := width - 65
+				if availableChildNameWidth < 15 {
+					availableChildNameWidth = 15
 				}
 				
-				childLine := fmt.Sprintf("%s%-5d %7.1f%% %9.1fMB %s", 
+				childLine := fmt.Sprintf("%s %-5d %6.1f%% %8.1fMB      %s (%s)", 
 					prefix, child.PID, child.CPUPercent, float64(child.MemoryBytes)/(1024*1024),
-					truncateString(child.Name, childNameWidth))
+					truncateString(child.Name, availableChildNameWidth-len(typeLabel)-3), typeLabel)
 				
-				d.drawText(0, currentY, width, childLine, childStyle)
+				d.drawText(3, currentY, width-6, childLine, childStyle)
+				// Draw child progress bars
+				childProgressStyle := d.colorScheme.GetStyle(d.colorScheme.GetProgressBarColor(child.CPUPercent), false)
+				d.drawText(17, currentY, len(childCpuBar), childCpuBar, childProgressStyle)
+				d.drawText(37, currentY, len(childMemBar), childMemBar, childProgressStyle)
 				currentY++
 			}
 		}
@@ -256,9 +311,28 @@ func (d *Display) renderProcesses(width, height int) {
 }
 
 func (d *Display) renderFooter(width, height int) {
-	footerY := height - 1
-	footerText := "Controls: ↑/↓ Navigate | Enter Expand/Collapse | Space Pause | R Refresh | Q Quit"
-	d.drawText(0, footerY, width, footerText, d.colorScheme.GetStyle(d.colorScheme.Header, false))
+	footerY := height - 3
+	
+	// Footer border
+	d.drawHorizontalLine(2, footerY, width-4, "─", d.colorScheme.Border)
+	
+	// Enhanced controls with icons
+	controls := []string{
+		"↑↓ Navigate",
+		"⏎ Expand",
+		"⏸ Pause",
+		"↻ Refresh",
+		"✗ Quit",
+	}
+	
+	footerText := "🎮 Controls: " + fmt.Sprintf("%s", strings.Join(controls, " │ "))
+	d.drawText(3, footerY+1, width-6, footerText, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
+	
+	// Process count and stats
+	processCount := len(d.processes)
+	statsText := fmt.Sprintf("📊 Showing %d processes", processCount)
+	d.drawText(width-len(statsText)-3, footerY+1, len(statsText), statsText, 
+		d.colorScheme.GetStyle(d.colorScheme.Muted, false))
 }
 
 func (d *Display) drawText(x, y, maxWidth int, text string, style tcell.Style) {
@@ -279,4 +353,41 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// drawBorder draws a border around the specified area
+func (d *Display) drawBorder(x, y, width, height int) {
+	borderStyle := d.colorScheme.GetStyle(d.colorScheme.Border, false)
+	
+	// Corners
+	d.screen.SetContent(x, y, '┌', nil, borderStyle)                    // Top-left
+	d.screen.SetContent(x+width-1, y, '┐', nil, borderStyle)           // Top-right
+	d.screen.SetContent(x, y+height-1, '└', nil, borderStyle)           // Bottom-left
+	d.screen.SetContent(x+width-1, y+height-1, '┘', nil, borderStyle) // Bottom-right
+	
+	// Horizontal lines
+	for i := x + 1; i < x+width-1; i++ {
+		d.screen.SetContent(i, y, '─', nil, borderStyle)         // Top
+		d.screen.SetContent(i, y+height-1, '─', nil, borderStyle) // Bottom
+	}
+	
+	// Vertical lines
+	for i := y + 1; i < y+height-1; i++ {
+		d.screen.SetContent(x, i, '│', nil, borderStyle)         // Left
+		d.screen.SetContent(x+width-1, i, '│', nil, borderStyle) // Right
+	}
+}
+
+// drawHorizontalLine draws a horizontal line
+func (d *Display) drawHorizontalLine(x, y, width int, char string, color tcell.Color) {
+	style := d.colorScheme.GetStyle(color, false)
+	runes := []rune(char)
+	if len(runes) == 0 {
+		return
+	}
+	lineChar := runes[0]
+	
+	for i := 0; i < width; i++ {
+		d.screen.SetContent(x+i, y, lineChar, nil, style)
+	}
 }
