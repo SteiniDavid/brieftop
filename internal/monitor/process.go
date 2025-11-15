@@ -5,6 +5,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -28,6 +30,20 @@ type ChildInfo struct {
 	CPUPercent  float64
 	MemoryBytes uint64
 	IsThread    bool
+}
+
+type SystemMetrics struct {
+	CPUPercent      float64
+	CPUCores        int
+	MemoryTotal     uint64
+	MemoryUsed      uint64
+	MemoryAvailable uint64
+	MemoryCached    uint64
+	MemoryBuffers   uint64
+	MemoryPercent   float64
+	SwapTotal       uint64
+	SwapUsed        uint64
+	SwapPercent     float64
 }
 
 type Monitor struct {
@@ -257,4 +273,41 @@ func (rl ResourceLevel) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func (m *Monitor) GetSystemMetrics() (*SystemMetrics, error) {
+	metrics := &SystemMetrics{}
+
+	// Get CPU metrics
+	cpuPercentages, err := cpu.Percent(0, false)
+	if err == nil && len(cpuPercentages) > 0 {
+		metrics.CPUPercent = cpuPercentages[0]
+	}
+
+	// Get CPU core count
+	cpuCounts, err := cpu.Counts(true) // true for logical cores
+	if err == nil {
+		metrics.CPUCores = cpuCounts
+	}
+
+	// Get memory metrics
+	vmem, err := mem.VirtualMemory()
+	if err == nil {
+		metrics.MemoryTotal = vmem.Total
+		metrics.MemoryUsed = vmem.Used
+		metrics.MemoryAvailable = vmem.Available
+		metrics.MemoryCached = vmem.Cached
+		metrics.MemoryBuffers = vmem.Buffers
+		metrics.MemoryPercent = vmem.UsedPercent
+	}
+
+	// Get swap metrics
+	swap, err := mem.SwapMemory()
+	if err == nil {
+		metrics.SwapTotal = swap.Total
+		metrics.SwapUsed = swap.Used
+		metrics.SwapPercent = swap.UsedPercent
+	}
+
+	return metrics, nil
 }

@@ -18,6 +18,7 @@ type Display struct {
 	config        ConfigInterface
 	mu            sync.RWMutex
 	processes     []*monitor.ProcessInfo
+	systemMetrics *monitor.SystemMetrics
 	selectedIndex int
 	paused        bool
 	forceRefresh  bool
@@ -119,8 +120,11 @@ func (d *Display) updateProcesses() {
 		return
 	}
 
+	systemMetrics, _ := d.monitor.GetSystemMetrics()
+
 	d.mu.Lock()
 	d.processes = processes
+	d.systemMetrics = systemMetrics
 	if d.selectedIndex >= len(d.processes) {
 		d.selectedIndex = len(d.processes) - 1
 	}
@@ -155,32 +159,85 @@ func (d *Display) renderHeader(width int) {
 		status = "⏸ PAUSED"
 		statusColor = d.colorScheme.Warning
 	}
-	
+
 	headerText := fmt.Sprintf("⚙️  brieftop - Processes >%.1f%% CPU or >%dMB RAM",
 		d.config.GetCPUThreshold(), d.config.GetMemoryThreshold()/(1024*1024))
-	
-	// Main header
+
+	// Main header (Line 1)
 	d.drawText(2, 1, width-4, headerText, d.colorScheme.GetStyle(d.colorScheme.Header, false))
-	
+
 	// Status indicator
 	statusX := width - len(status) - 3
 	d.drawText(statusX, 1, len(status), status, d.colorScheme.GetStyle(statusColor, false))
-	
-	// Separator line
-	d.drawHorizontalLine(2, 2, width-4, "─", d.colorScheme.Border)
-	
-	// Column headers with better spacing
-	columnHeaders := fmt.Sprintf("  %-7s %7s %10s %6s %s", 
+
+	// System metrics (Lines 2-4) if available
+	if d.systemMetrics != nil {
+		// CPU line (Line 2)
+		cpuBar := CreateProgressBar(d.systemMetrics.CPUPercent, 20)
+		cpuColor := d.colorScheme.GetProgressBarColor(d.systemMetrics.CPUPercent)
+
+		d.drawText(2, 2, width-2, "CPU:  ", d.colorScheme.GetStyle(d.colorScheme.Text, false))
+		d.drawText(8, 2, width-2, cpuBar, d.colorScheme.GetStyle(cpuColor, false))
+		remainingCPU := fmt.Sprintf(" %.1f%% (%d cores)", d.systemMetrics.CPUPercent, d.systemMetrics.CPUCores)
+		d.drawText(8+len(cpuBar), 2, width-2, remainingCPU, d.colorScheme.GetStyle(d.colorScheme.Text, false))
+
+		// Memory line (Line 3)
+		memBar := CreateProgressBar(d.systemMetrics.MemoryPercent, 20)
+		memColor := d.colorScheme.GetProgressBarColor(d.systemMetrics.MemoryPercent)
+		usedGB := monitor.FormatBytes(d.systemMetrics.MemoryUsed)
+		totalGB := monitor.FormatBytes(d.systemMetrics.MemoryTotal)
+		availGB := monitor.FormatBytes(d.systemMetrics.MemoryAvailable)
+
+		d.drawText(2, 3, width-2, "MEM:  ", d.colorScheme.GetStyle(d.colorScheme.Text, false))
+		d.drawText(8, 3, width-2, memBar, d.colorScheme.GetStyle(memColor, false))
+
+		// Build memory details - only show cache/buffers if non-zero
+		memDetails := fmt.Sprintf(" %s/%s (%.1f%%)  │ Available: %s",
+			usedGB, totalGB, d.systemMetrics.MemoryPercent, availGB)
+
+		if d.systemMetrics.MemoryCached > 0 {
+			cacheGB := monitor.FormatBytes(d.systemMetrics.MemoryCached)
+			memDetails += fmt.Sprintf("  Cached: %s", cacheGB)
+		}
+		if d.systemMetrics.MemoryBuffers > 0 {
+			buffersGB := monitor.FormatBytes(d.systemMetrics.MemoryBuffers)
+			memDetails += fmt.Sprintf("  Buffers: %s", buffersGB)
+		}
+
+		d.drawText(8+len(memBar), 3, width-2, memDetails, d.colorScheme.GetStyle(d.colorScheme.Text, false))
+
+		// Swap line (Line 4)
+		if d.systemMetrics.SwapTotal > 0 {
+			swapBar := CreateProgressBar(d.systemMetrics.SwapPercent, 20)
+			swapColor := d.colorScheme.GetProgressBarColor(d.systemMetrics.SwapPercent)
+			swapUsedGB := monitor.FormatBytes(d.systemMetrics.SwapUsed)
+			swapTotalGB := monitor.FormatBytes(d.systemMetrics.SwapTotal)
+
+			d.drawText(2, 4, width-2, "SWAP: ", d.colorScheme.GetStyle(d.colorScheme.Text, false))
+			d.drawText(8, 4, width-2, swapBar, d.colorScheme.GetStyle(swapColor, false))
+			swapDetails := fmt.Sprintf(" %s/%s (%.1f%%)", swapUsedGB, swapTotalGB, d.systemMetrics.SwapPercent)
+			d.drawText(8+len(swapBar), 4, width-2, swapDetails, d.colorScheme.GetStyle(d.colorScheme.Text, false))
+		} else {
+			swapText := "SWAP: Disabled"
+			d.drawText(2, 4, width-2, swapText, d.colorScheme.GetStyle(d.colorScheme.Muted, false))
+		}
+	}
+
+	// Separator line (Line 5)
+	d.drawHorizontalLine(2, 5, width-4, "─", d.colorScheme.Border)
+
+	// Column headers with better spacing (Line 6)
+	columnHeaders := fmt.Sprintf("  %-7s %7s %10s %6s %s",
 		"PID", "CPU", "MEMORY", "CHILD", "PROCESS NAME")
-	d.drawText(2, 3, width-4, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
-	
-	// Header separator
-	d.drawHorizontalLine(2, 4, width-4, "━", d.colorScheme.Border)
+	d.drawText(2, 6, width-4, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
+
+	// Header separator (Line 7)
+	d.drawHorizontalLine(2, 7, width-4, "━", d.colorScheme.Border)
 }
 
 func (d *Display) renderProcesses(width, height int) {
-	startY := 5  // Start after enhanced header
-	maxRows := height - 8  // Leave space for footer
+	startY := 8  // Start after system metrics header (lines 1-7)
+	maxRows := height - 11  // Leave space for header and footer
 	currentY := startY
 
 	for i, proc := range d.processes {
