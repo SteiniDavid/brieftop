@@ -1,9 +1,9 @@
 package main
 
 import (
-	"cpu-monitor/internal/config"
-	"cpu-monitor/internal/monitor"
-	"cpu-monitor/internal/ui"
+	"brieftop/internal/config"
+	"brieftop/internal/monitor"
+	"brieftop/internal/ui"
 	"flag"
 	"fmt"
 	"log"
@@ -25,7 +25,7 @@ func main() {
 	
 	// Custom usage function
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "CPU Monitor - A focused process monitoring tool\n\n")
+		fmt.Fprintf(os.Stderr, "brieftop - A focused process monitoring tool showing only the essentials\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
@@ -49,8 +49,8 @@ func main() {
 	}
 	
 	if *showVersion {
-		fmt.Println("CPU Monitor v1.0.0")
-		fmt.Println("A focused process monitoring tool for high-resource processes")
+		fmt.Println("brieftop v1.0.0")
+		fmt.Println("A focused process monitoring tool showing only the essentials")
 		os.Exit(0)
 	}
 	

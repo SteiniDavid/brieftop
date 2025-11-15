@@ -1,4 +1,4 @@
-module cpu-monitor
+module brieftop
 
 go 1.21
 

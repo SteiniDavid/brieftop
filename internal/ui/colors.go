@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"cpu-monitor/internal/monitor"
+	"brieftop/internal/monitor"
 
 	"github.com/gdamore/tcell/v2"
 )

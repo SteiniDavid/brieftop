@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"cpu-monitor/internal/monitor"
+	"brieftop/internal/monitor"
 	"fmt"
 	"strings"
 	"sync"
@@ -156,7 +156,7 @@ func (d *Display) renderHeader(width int) {
 		statusColor = d.colorScheme.Warning
 	}
 	
-	headerText := fmt.Sprintf("⚙️  CPU Monitor - Processes >%.1f%% CPU or >%dMB RAM", 
+	headerText := fmt.Sprintf("⚙️  brieftop - Processes >%.1f%% CPU or >%dMB RAM",
 		d.config.GetCPUThreshold(), d.config.GetMemoryThreshold()/(1024*1024))
 	
 	// Main header

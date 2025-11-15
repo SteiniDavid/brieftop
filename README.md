@@ -1,6 +1,6 @@
-# CPU Monitor
+# brieftop
 
-A focused Go CLI tool for monitoring CPU and memory intensive processes. Unlike generic tools like htop, this monitor specifically shows only processes that are using significant resources.
+A focused Go CLI tool for monitoring CPU and memory intensive processes - showing only the essentials. Unlike generic tools like htop, brieftop specifically shows only processes that are using significant resources.
 
 ## Features
 
@@ -24,24 +24,24 @@ A focused Go CLI tool for monitoring CPU and memory intensive processes. Unlike 
 
 ### Build from source
 ```bash
-cd cpu-monitor
+cd brieftop
 go mod tidy
-go build -o cpu-monitor
+go build -o brieftop
 ```
 
 ### Run
 ```bash
 # Run with default settings (>5% CPU or >50MB memory)
-./cpu-monitor
+./brieftop
 
 # Show help
-./cpu-monitor --help
+./brieftop --help
 
 # Custom thresholds and refresh rate
-./cpu-monitor --cpu 10 --memory 100 --refresh 2s
+./brieftop --cpu 10 --memory 100 --refresh 2s
 
 # Show version
-./cpu-monitor --version
+./brieftop --version
 ```
 
 ## Configuration
