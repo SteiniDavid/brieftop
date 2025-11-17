@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         go: ['1.21', '1.22', '1.23']
 
     steps:
@@ -83,7 +83,6 @@ jobs:
         GOOS=linux GOARCH=arm64 go build -o bin/brieftop-linux-arm64 .
         GOOS=darwin GOARCH=amd64 go build -o bin/brieftop-darwin-amd64 .
         GOOS=darwin GOARCH=arm64 go build -o bin/brieftop-darwin-arm64 .
-        GOOS=windows GOARCH=amd64 go build -o bin/brieftop-windows-amd64.exe .
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
