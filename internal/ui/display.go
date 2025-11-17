@@ -20,6 +20,7 @@ type Display struct {
 	processes     []*monitor.ProcessInfo
 	systemMetrics *monitor.SystemMetrics
 	selectedIndex int
+	scrollOffset  int
 	paused        bool
 	forceRefresh  bool
 	running       bool
@@ -37,6 +38,7 @@ func New(config ConfigInterface, mon *monitor.Monitor) *Display {
 		colorScheme:   NewColorScheme(),
 		config:        config,
 		selectedIndex: 0,
+		scrollOffset:  0,
 		paused:        false,
 		forceRefresh:  false,
 		running:       true,
@@ -131,7 +133,32 @@ func (d *Display) updateProcesses() {
 	if d.selectedIndex < 0 {
 		d.selectedIndex = 0
 	}
+	d.adjustScrollOffset()
 	d.mu.Unlock()
+}
+
+// adjustScrollOffset ensures the selected item is visible on screen
+func (d *Display) adjustScrollOffset() {
+	if d.screen == nil {
+		return
+	}
+
+	_, height := d.screen.Size()
+	maxRows := height - 11  // Same calculation as in renderProcesses
+
+	// Ensure scrollOffset keeps selected item visible
+	if d.selectedIndex < d.scrollOffset {
+		// Selected item is above viewport, scroll up
+		d.scrollOffset = d.selectedIndex
+	} else if d.selectedIndex >= d.scrollOffset + maxRows {
+		// Selected item is below viewport, scroll down
+		d.scrollOffset = d.selectedIndex - maxRows + 1
+	}
+
+	// Ensure scrollOffset doesn't go negative
+	if d.scrollOffset < 0 {
+		d.scrollOffset = 0
+	}
 }
 
 func (d *Display) render() {
@@ -240,11 +267,13 @@ func (d *Display) renderProcesses(width, height int) {
 	maxRows := height - 11  // Leave space for header and footer
 	currentY := startY
 
-	for i, proc := range d.processes {
+	// Render processes starting from scrollOffset
+	for i := d.scrollOffset; i < len(d.processes); i++ {
 		if currentY >= startY + maxRows {
 			break
 		}
 
+		proc := d.processes[i]
 		isSelected := i == d.selectedIndex
 		childCount := len(proc.Children)
 		

@@ -74,91 +74,42 @@ func (m *Monitor) GetFilteredProcesses() ([]*ProcessInfo, error) {
 
 	var filtered []*ProcessInfo
 	allProcesses := make(map[int32]*ProcessInfo)
-	qualifyingProcesses := make(map[int32]*ProcessInfo)
 	childrenMap := make(map[int32][]int32) // parent PID -> children PIDs
 
-	// First pass: collect all process info
+	// First pass: collect all process info and build parent-child mapping
 	for _, p := range processes {
 		info, err := m.getProcessInfo(p)
 		if err != nil {
 			continue
 		}
 		allProcesses[info.PID] = info
-		
+
 		// Build parent-child mapping
 		if info.PPID != 0 {
 			childrenMap[info.PPID] = append(childrenMap[info.PPID], info.PID)
 		}
-		
-		// Check if process meets our thresholds
+	}
+
+	// Second pass: recursively aggregate resources bottom-up for ALL processes
+	aggregated := make(map[int32]bool)
+	for pid := range allProcesses {
+		m.aggregateResources(pid, allProcesses, childrenMap, aggregated)
+	}
+
+	// Third pass: filter based on aggregated totals and collect top-level processes
+	qualifyingProcesses := make(map[int32]*ProcessInfo)
+
+	for _, info := range allProcesses {
+		// Check if aggregated resources meet our thresholds
 		if info.CPUPercent >= m.config.GetCPUThreshold() || info.MemoryBytes >= m.config.GetMemoryThreshold() {
 			qualifyingProcesses[info.PID] = info
 		}
 	}
 
-	// Second pass: build hierarchies and collect children
-	for pid, info := range allProcesses {
-		if childPIDs, hasChildren := childrenMap[pid]; hasChildren {
-			for _, childPID := range childPIDs {
-				if childInfo, exists := allProcesses[childPID]; exists {
-					// Determine if this is a thread or child process
-					isThread := m.isThread(childInfo, info)
-					
-					child := ChildInfo{
-						PID:         childInfo.PID,
-						Name:        childInfo.Name,
-						CPUPercent:  childInfo.CPUPercent,
-						MemoryBytes: childInfo.MemoryBytes,
-						IsThread:    isThread,
-					}
-					info.Children = append(info.Children, child)
-					
-					// If child qualifies, ensure parent is included
-					if _, childQualifies := qualifyingProcesses[childPID]; childQualifies {
-						if _, parentQualifies := qualifyingProcesses[pid]; !parentQualifies {
-							qualifyingProcesses[pid] = info
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Aggregate resources for processes with children
+	// Fourth pass: collect top-level processes (those without qualifying parents)
 	for _, info := range qualifyingProcesses {
-		if len(info.Children) > 0 {
-			// Store original parent values
-			info.ParentCPU = info.CPUPercent
-			info.ParentMemory = info.MemoryBytes
-			
-			// Sum all children CPU and memory
-			totalCPU := 0.0
-			totalMemory := uint64(0)
-			
-			for _, child := range info.Children {
-				totalCPU += child.CPUPercent
-				totalMemory += child.MemoryBytes
-			}
-			
-			// Add parent's own usage to totals
-			totalCPU += info.ParentCPU
-			totalMemory += info.ParentMemory
-			
-			// Set the totals as the displayed values
-			info.CPUPercent = totalCPU
-			info.MemoryBytes = totalMemory
-			info.MemoryMB = float64(totalMemory) / (1024 * 1024)
-		}
-	}
-
-	// Third pass: collect top-level processes that qualify
-	for _, info := range qualifyingProcesses {
-		// Only include processes that don't have a qualifying parent
+		// Only include processes that don't have a parent in the qualifying set
 		if _, parentExists := qualifyingProcesses[info.PPID]; !parentExists {
-			// Ensure MemoryMB is set for processes without children
-			if len(info.Children) == 0 {
-				info.MemoryMB = float64(info.MemoryBytes) / (1024 * 1024)
-			}
 			filtered = append(filtered, info)
 		}
 	}
@@ -168,6 +119,82 @@ func (m *Monitor) GetFilteredProcesses() ([]*ProcessInfo, error) {
 	})
 
 	return filtered, nil
+}
+
+// aggregateResources recursively aggregates CPU and memory usage from children to parents
+// This ensures multi-level hierarchies are properly aggregated bottom-up
+// Only aggregates children that are part of the same application family
+func (m *Monitor) aggregateResources(pid int32, allProcesses map[int32]*ProcessInfo, childrenMap map[int32][]int32, aggregated map[int32]bool) {
+	// If already aggregated, skip
+	if aggregated[pid] {
+		return
+	}
+
+	info, exists := allProcesses[pid]
+	if !exists {
+		return
+	}
+
+	childPIDs, hasChildren := childrenMap[pid]
+	if !hasChildren {
+		// Leaf process - just set MemoryMB
+		info.MemoryMB = float64(info.MemoryBytes) / (1024 * 1024)
+		aggregated[pid] = true
+		return
+	}
+
+	// Store original parent values before aggregation
+	info.ParentCPU = info.CPUPercent
+	info.ParentMemory = info.MemoryBytes
+
+	// Recursively aggregate children first (bottom-up)
+	totalCPU := info.CPUPercent
+	totalMemory := info.MemoryBytes
+	hasRelatedChildren := false
+
+	for _, childPID := range childPIDs {
+		// Ensure child is aggregated first
+		m.aggregateResources(childPID, allProcesses, childrenMap, aggregated)
+
+		if childInfo, childExists := allProcesses[childPID]; childExists {
+			// Check if this child should be aggregated into parent
+			// Only aggregate if child is related (same app family)
+			if !m.isRelatedToParent(childInfo, info) {
+				// Child is from a different application - don't aggregate
+				continue
+			}
+
+			hasRelatedChildren = true
+
+			// Determine if this is a thread or child process
+			isThread := m.isThread(childInfo, info)
+
+			child := ChildInfo{
+				PID:         childInfo.PID,
+				Name:        childInfo.Name,
+				CPUPercent:  childInfo.CPUPercent,  // Now contains aggregated values
+				MemoryBytes: childInfo.MemoryBytes, // Now contains aggregated values
+				IsThread:    isThread,
+			}
+			info.Children = append(info.Children, child)
+
+			// Aggregate resources (using the child's aggregated values)
+			totalCPU += childInfo.CPUPercent
+			totalMemory += childInfo.MemoryBytes
+		}
+	}
+
+	// Only set aggregated totals if we have related children
+	if hasRelatedChildren {
+		info.CPUPercent = totalCPU
+		info.MemoryBytes = totalMemory
+		info.MemoryMB = float64(totalMemory) / (1024 * 1024)
+	} else {
+		// No related children - just set MemoryMB
+		info.MemoryMB = float64(info.MemoryBytes) / (1024 * 1024)
+	}
+
+	aggregated[pid] = true
 }
 
 func (m *Monitor) getProcessInfo(p *process.Process) (*ProcessInfo, error) {
@@ -219,23 +246,58 @@ func (m *Monitor) isThread(child, parent *ProcessInfo) bool {
 	// 1. Same executable name as parent
 	// 2. Low memory usage relative to parent (threads share memory)
 	// 3. Certain naming patterns
-	
+
 	if child.Name == parent.Name {
 		return true
 	}
-	
+
 	// Check for common thread naming patterns
-	if len(child.Name) > len(parent.Name) && 
+	if len(child.Name) > len(parent.Name) &&
 	   child.Name[:len(parent.Name)] == parent.Name {
 		return true
 	}
-	
+
 	// If child uses significantly less memory, likely a thread
-	if parent.MemoryBytes > 0 && 
+	if parent.MemoryBytes > 0 &&
 	   float64(child.MemoryBytes)/float64(parent.MemoryBytes) < 0.1 {
 		return true
 	}
-	
+
+	return false
+}
+
+// isRelatedToParent determines if a child process should be aggregated into its parent
+// Returns false for unrelated applications (e.g., systemd's children from different apps)
+func (m *Monitor) isRelatedToParent(child, parent *ProcessInfo) bool {
+	// System-level parent processes shouldn't aggregate unrelated children
+	systemParents := map[string]bool{
+		"systemd": true,
+		"init":    true,
+		"launchd": true, // macOS init system
+	}
+
+	if systemParents[parent.Name] {
+		return false
+	}
+
+	// If same name or name prefix, they're related (same application)
+	if child.Name == parent.Name {
+		return true
+	}
+
+	// Check if child name starts with parent name (e.g., "chrome" and "chrome_crashpad")
+	if len(child.Name) >= len(parent.Name) &&
+	   child.Name[:len(parent.Name)] == parent.Name {
+		return true
+	}
+
+	// Check if parent name starts with child name (e.g., "code-" prefix variants)
+	if len(parent.Name) >= len(child.Name) &&
+	   parent.Name[:len(child.Name)] == child.Name {
+		return true
+	}
+
+	// Otherwise, consider them unrelated
 	return false
 }
 

@@ -59,7 +59,7 @@ func (d *Display) MoveCursor(delta int) {
 	if len(d.processes) == 0 {
 		return
 	}
-	
+
 	newPos := d.selectedIndex + delta
 	if newPos < 0 {
 		newPos = len(d.processes) - 1
@@ -67,6 +67,7 @@ func (d *Display) MoveCursor(delta int) {
 		newPos = 0
 	}
 	d.selectedIndex = newPos
+	d.adjustScrollOffset()
 }
 
 func (d *Display) SetCursor(pos int) {
@@ -75,7 +76,7 @@ func (d *Display) SetCursor(pos int) {
 	if len(d.processes) == 0 {
 		return
 	}
-	
+
 	if pos < 0 {
 		d.selectedIndex = len(d.processes) - 1
 	} else if pos >= len(d.processes) {
@@ -83,6 +84,7 @@ func (d *Display) SetCursor(pos int) {
 	} else {
 		d.selectedIndex = pos
 	}
+	d.adjustScrollOffset()
 }
 
 func (d *Display) ToggleExpanded() {
