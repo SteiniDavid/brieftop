@@ -69,6 +69,8 @@ jobs:
     name: Build Release Binaries
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout code
