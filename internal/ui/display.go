@@ -87,12 +87,10 @@ func (d *Display) updateLoop() {
 	defer ticker.Stop()
 
 	for d.running {
-		select {
-		case <-ticker.C:
-			if !d.paused || d.forceRefresh {
-				d.updateProcesses()
-				d.forceRefresh = false
-			}
+		<-ticker.C
+		if !d.paused || d.forceRefresh {
+			d.updateProcesses()
+			d.forceRefresh = false
 		}
 	}
 }
@@ -122,7 +120,10 @@ func (d *Display) updateProcesses() {
 		return
 	}
 
-	systemMetrics, _ := d.monitor.GetSystemMetrics()
+	systemMetrics, err := d.monitor.GetSystemMetrics()
+	if err != nil {
+		systemMetrics = nil
+	}
 
 	d.mu.Lock()
 	d.processes = processes
@@ -144,13 +145,13 @@ func (d *Display) adjustScrollOffset() {
 	}
 
 	_, height := d.screen.Size()
-	maxRows := height - 11  // Same calculation as in renderProcesses
+	maxRows := height - 11 // Same calculation as in renderProcesses
 
 	// Ensure scrollOffset keeps selected item visible
 	if d.selectedIndex < d.scrollOffset {
 		// Selected item is above viewport, scroll up
 		d.scrollOffset = d.selectedIndex
-	} else if d.selectedIndex >= d.scrollOffset + maxRows {
+	} else if d.selectedIndex >= d.scrollOffset+maxRows {
 		// Selected item is below viewport, scroll down
 		d.scrollOffset = d.selectedIndex - maxRows + 1
 	}
@@ -170,7 +171,7 @@ func (d *Display) render() {
 
 	// Draw main border
 	d.drawBorder(0, 0, width, height)
-	
+
 	d.renderHeader(width)
 	d.renderProcesses(width, height)
 	d.renderFooter(width, height)
@@ -263,36 +264,36 @@ func (d *Display) renderHeader(width int) {
 }
 
 func (d *Display) renderProcesses(width, height int) {
-	startY := 8  // Start after system metrics header (lines 1-7)
-	maxRows := height - 11  // Leave space for header and footer
+	startY := 8            // Start after system metrics header (lines 1-7)
+	maxRows := height - 11 // Leave space for header and footer
 	currentY := startY
 
 	// Render processes starting from scrollOffset
 	for i := d.scrollOffset; i < len(d.processes); i++ {
-		if currentY >= startY + maxRows {
+		if currentY >= startY+maxRows {
 			break
 		}
 
 		proc := d.processes[i]
 		isSelected := i == d.selectedIndex
 		childCount := len(proc.Children)
-		
+
 		// Enhanced status icon
 		statusIcon := GetStatusIcon(proc.CPUPercent, proc.Expanded, childCount > 0)
-		
+
 		// Color based on resource usage
 		level := d.monitor.GetResourceLevel(proc.CPUPercent, proc.MemoryMB)
 		color := d.colorScheme.GetProcessColor(level)
 		style := d.colorScheme.GetStyle(color, isSelected)
-		
+
 		// Calculate available space for name
 		availableNameWidth := width - 45
 		if availableNameWidth < 20 {
 			availableNameWidth = 20
 		}
-		
+
 		// Main process line with proper formatting
-		processLine := fmt.Sprintf("%s %-6d %6.1f%% %9.1fMB %5d %s", 
+		processLine := fmt.Sprintf("%s %-6d %6.1f%% %9.1fMB %5d %s",
 			statusIcon, proc.PID, proc.CPUPercent, proc.MemoryMB, childCount,
 			truncateString(proc.Name, availableNameWidth))
 
@@ -301,53 +302,53 @@ func (d *Display) renderProcesses(width, height int) {
 
 		if proc.Expanded && childCount > 0 {
 			// First show the parent process itself
-			if currentY < startY + maxRows {
-				parentPrefix := "    ├─●"  // Parent indicator
+			if currentY < startY+maxRows {
+				parentPrefix := "    ├─●" // Parent indicator
 				parentStyle := d.colorScheme.GetStyle(d.colorScheme.Text, false)
-				
+
 				availableParentNameWidth := width - 50
 				if availableParentNameWidth < 15 {
 					availableParentNameWidth = 15
 				}
-				
-				parentLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (parent)", 
+
+				parentLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (parent)",
 					parentPrefix, proc.PID, proc.ParentCPU, float64(proc.ParentMemory)/(1024*1024),
 					truncateString(proc.Name, availableParentNameWidth-9))
-				
+
 				d.drawText(3, currentY, width-6, parentLine, parentStyle)
 				currentY++
 			}
-			
+
 			// Then show all children
 			for _, child := range proc.Children {
-				if currentY >= startY + maxRows {
+				if currentY >= startY+maxRows {
 					break
 				}
-				
+
 				// Visual indicators for different types
 				var prefix string
 				var childStyle tcell.Style
 				var typeLabel string
-				
+
 				if child.IsThread {
-					prefix = "    ╠═"  // Thread indicator
+					prefix = "    ╠═" // Thread indicator
 					childStyle = d.colorScheme.GetStyle(d.colorScheme.Thread, false)
 					typeLabel = "thread"
 				} else {
-					prefix = "    ├─"  // Child process indicator
+					prefix = "    ├─" // Child process indicator
 					childStyle = d.colorScheme.GetStyle(d.colorScheme.ChildProcess, false)
 					typeLabel = "child"
 				}
-				
+
 				availableChildNameWidth := width - 55
 				if availableChildNameWidth < 15 {
 					availableChildNameWidth = 15
 				}
-				
-				childLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (%s)", 
+
+				childLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (%s)",
 					prefix, child.PID, child.CPUPercent, float64(child.MemoryBytes)/(1024*1024),
 					truncateString(child.Name, availableChildNameWidth-len(typeLabel)-3), typeLabel)
-				
+
 				d.drawText(3, currentY, width-6, childLine, childStyle)
 				currentY++
 			}
@@ -357,10 +358,10 @@ func (d *Display) renderProcesses(width, height int) {
 
 func (d *Display) renderFooter(width, height int) {
 	footerY := height - 3
-	
+
 	// Footer border
 	d.drawHorizontalLine(2, footerY, width-4, "─", d.colorScheme.Border)
-	
+
 	// Enhanced controls with icons
 	controls := []string{
 		"↑↓ Navigate",
@@ -369,14 +370,14 @@ func (d *Display) renderFooter(width, height int) {
 		"↻ Refresh",
 		"✗ Quit",
 	}
-	
-	footerText := "🎮 Controls: " + fmt.Sprintf("%s", strings.Join(controls, " │ "))
+
+	footerText := "🎮 Controls: " + strings.Join(controls, " │ ")
 	d.drawText(3, footerY+1, width-6, footerText, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
-	
+
 	// Process count and stats
 	processCount := len(d.processes)
 	statsText := fmt.Sprintf("📊 Showing %d processes", processCount)
-	d.drawText(width-len(statsText)-3, footerY+1, len(statsText), statsText, 
+	d.drawText(width-len(statsText)-3, footerY+1, len(statsText), statsText,
 		d.colorScheme.GetStyle(d.colorScheme.Muted, false))
 }
 
@@ -403,19 +404,19 @@ func truncateString(s string, maxLen int) string {
 // drawBorder draws a border around the specified area
 func (d *Display) drawBorder(x, y, width, height int) {
 	borderStyle := d.colorScheme.GetStyle(d.colorScheme.Border, false)
-	
+
 	// Corners
-	d.screen.SetContent(x, y, '┌', nil, borderStyle)                    // Top-left
-	d.screen.SetContent(x+width-1, y, '┐', nil, borderStyle)           // Top-right
-	d.screen.SetContent(x, y+height-1, '└', nil, borderStyle)           // Bottom-left
+	d.screen.SetContent(x, y, '┌', nil, borderStyle)                  // Top-left
+	d.screen.SetContent(x+width-1, y, '┐', nil, borderStyle)          // Top-right
+	d.screen.SetContent(x, y+height-1, '└', nil, borderStyle)         // Bottom-left
 	d.screen.SetContent(x+width-1, y+height-1, '┘', nil, borderStyle) // Bottom-right
-	
+
 	// Horizontal lines
 	for i := x + 1; i < x+width-1; i++ {
-		d.screen.SetContent(i, y, '─', nil, borderStyle)         // Top
+		d.screen.SetContent(i, y, '─', nil, borderStyle)          // Top
 		d.screen.SetContent(i, y+height-1, '─', nil, borderStyle) // Bottom
 	}
-	
+
 	// Vertical lines
 	for i := y + 1; i < y+height-1; i++ {
 		d.screen.SetContent(x, i, '│', nil, borderStyle)         // Left
@@ -431,7 +432,7 @@ func (d *Display) drawHorizontalLine(x, y, width int, char string, color tcell.C
 		return
 	}
 	lineChar := runes[0]
-	
+
 	for i := 0; i < width; i++ {
 		d.screen.SetContent(x+i, y, lineChar, nil, style)
 	}

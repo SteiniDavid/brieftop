@@ -11,17 +11,17 @@ import (
 )
 
 type ProcessInfo struct {
-	PID           int32
-	PPID          int32
-	Name          string
-	CPUPercent    float64
-	MemoryBytes   uint64
-	MemoryMB      float64
-	Children      []ChildInfo
-	Expanded      bool
-	LastUpdate    time.Time
-	ParentCPU     float64  // Store original parent CPU for display
-	ParentMemory  uint64   // Store original parent memory for display
+	PID          int32
+	PPID         int32
+	Name         string
+	CPUPercent   float64
+	MemoryBytes  uint64
+	MemoryMB     float64
+	Children     []ChildInfo
+	Expanded     bool
+	LastUpdate   time.Time
+	ParentCPU    float64 // Store original parent CPU for display
+	ParentMemory uint64  // Store original parent memory for display
 }
 
 type ChildInfo struct {
@@ -199,7 +199,7 @@ func (m *Monitor) aggregateResources(pid int32, allProcesses map[int32]*ProcessI
 
 func (m *Monitor) getProcessInfo(p *process.Process) (*ProcessInfo, error) {
 	pid := p.Pid
-	
+
 	name, err := p.Name()
 	if err != nil {
 		return nil, err
@@ -253,13 +253,13 @@ func (m *Monitor) isThread(child, parent *ProcessInfo) bool {
 
 	// Check for common thread naming patterns
 	if len(child.Name) > len(parent.Name) &&
-	   child.Name[:len(parent.Name)] == parent.Name {
+		child.Name[:len(parent.Name)] == parent.Name {
 		return true
 	}
 
 	// If child uses significantly less memory, likely a thread
 	if parent.MemoryBytes > 0 &&
-	   float64(child.MemoryBytes)/float64(parent.MemoryBytes) < 0.1 {
+		float64(child.MemoryBytes)/float64(parent.MemoryBytes) < 0.1 {
 		return true
 	}
 
@@ -287,13 +287,13 @@ func (m *Monitor) isRelatedToParent(child, parent *ProcessInfo) bool {
 
 	// Check if child name starts with parent name (e.g., "chrome" and "chrome_crashpad")
 	if len(child.Name) >= len(parent.Name) &&
-	   child.Name[:len(parent.Name)] == parent.Name {
+		child.Name[:len(parent.Name)] == parent.Name {
 		return true
 	}
 
 	// Check if parent name starts with child name (e.g., "code-" prefix variants)
 	if len(parent.Name) >= len(child.Name) &&
-	   parent.Name[:len(child.Name)] == child.Name {
+		parent.Name[:len(child.Name)] == child.Name {
 		return true
 	}
 

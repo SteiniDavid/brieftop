@@ -11,7 +11,7 @@ type Config struct {
 
 func New() *Config {
 	return &Config{
-		CPUThreshold:    5.0,           // 5% CPU
+		CPUThreshold:    5.0,              // 5% CPU
 		MemoryThreshold: 50 * 1024 * 1024, // 50MB in bytes
 		RefreshRate:     time.Second,
 		ShowThreads:     true,

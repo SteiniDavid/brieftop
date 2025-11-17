@@ -25,21 +25,21 @@ type ColorScheme struct {
 
 func NewColorScheme() *ColorScheme {
 	return &ColorScheme{
-		Background:   tcell.NewRGBColor(15, 15, 25),     // Dark navy background
-		Text:         tcell.NewRGBColor(220, 225, 235),   // Light gray text
-		Header:       tcell.NewRGBColor(100, 200, 255),   // Bright blue header
-		LowUsage:     tcell.NewRGBColor(80, 200, 120),    // Vibrant green
-		MediumUsage:  tcell.NewRGBColor(255, 180, 50),    // Warm orange
-		HighUsage:    tcell.NewRGBColor(255, 85, 85),     // Bright red
-		Selected:     tcell.NewRGBColor(70, 130, 255),    // Bright blue selection
-		Thread:       tcell.NewRGBColor(150, 160, 180),   // Muted gray for threads
-		ChildProcess: tcell.NewRGBColor(120, 200, 200),   // Cyan for child processes
-		Border:       tcell.NewRGBColor(60, 70, 90),      // Subtle border color
-		Accent:       tcell.NewRGBColor(200, 120, 255),   // Purple accent
-		Muted:        tcell.NewRGBColor(120, 130, 140),   // Muted text
-		Success:      tcell.NewRGBColor(50, 255, 120),    // Bright success green
-		Warning:      tcell.NewRGBColor(255, 200, 50),    // Warning yellow
-		Error:        tcell.NewRGBColor(255, 100, 100),   // Error red
+		Background:   tcell.NewRGBColor(15, 15, 25),    // Dark navy background
+		Text:         tcell.NewRGBColor(220, 225, 235), // Light gray text
+		Header:       tcell.NewRGBColor(100, 200, 255), // Bright blue header
+		LowUsage:     tcell.NewRGBColor(80, 200, 120),  // Vibrant green
+		MediumUsage:  tcell.NewRGBColor(255, 180, 50),  // Warm orange
+		HighUsage:    tcell.NewRGBColor(255, 85, 85),   // Bright red
+		Selected:     tcell.NewRGBColor(70, 130, 255),  // Bright blue selection
+		Thread:       tcell.NewRGBColor(150, 160, 180), // Muted gray for threads
+		ChildProcess: tcell.NewRGBColor(120, 200, 200), // Cyan for child processes
+		Border:       tcell.NewRGBColor(60, 70, 90),    // Subtle border color
+		Accent:       tcell.NewRGBColor(200, 120, 255), // Purple accent
+		Muted:        tcell.NewRGBColor(120, 130, 140), // Muted text
+		Success:      tcell.NewRGBColor(50, 255, 120),  // Bright success green
+		Warning:      tcell.NewRGBColor(255, 200, 50),  // Warning yellow
+		Error:        tcell.NewRGBColor(255, 100, 100), // Error red
 	}
 }
 
@@ -81,12 +81,12 @@ func CreateProgressBar(percent float64, width int) string {
 	if width < 2 {
 		return ""
 	}
-	
+
 	filledWidth := int((percent / 100.0) * float64(width))
 	if filledWidth > width {
 		filledWidth = width
 	}
-	
+
 	bar := ""
 	for i := 0; i < width; i++ {
 		if i < filledWidth {
@@ -107,13 +107,13 @@ func GetStatusIcon(cpuPercent float64, isExpanded bool, hasChildren bool) string
 			return "▶"
 		}
 	}
-	
+
 	if cpuPercent >= 50 {
 		return "●" // High CPU
 	} else if cpuPercent >= 20 {
 		return "●" // Medium CPU
 	} else if cpuPercent >= 5 {
-		return "●"  // Active
+		return "●" // Active
 	}
-	return "○"  // Low activity
+	return "○" // Low activity
 }
