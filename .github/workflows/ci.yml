@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
 
@@ -79,13 +81,15 @@ jobs:
 
     - name: Build binaries
       run: |
+        mkdir -p bin
         GOOS=linux GOARCH=amd64 go build -o bin/brieftop-linux-amd64 .
         GOOS=linux GOARCH=arm64 go build -o bin/brieftop-linux-arm64 .
         GOOS=darwin GOARCH=amd64 go build -o bin/brieftop-darwin-amd64 .
         GOOS=darwin GOARCH=arm64 go build -o bin/brieftop-darwin-arm64 .
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+    - name: Upload binaries to release
+      uses: softprops/action-gh-release@v2
       with:
-        name: binaries
-        path: bin/
+        files: bin/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
