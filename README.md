@@ -1,5 +1,9 @@
 # brieftop
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/SteiniDavid/brieftop.svg)](https://pkg.go.dev/github.com/SteiniDavid/brieftop)
+[![Go Report Card](https://goreportcard.com/badge/github.com/SteiniDavid/brieftop)](https://goreportcard.com/report/github.com/SteiniDavid/brieftop)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A focused Go CLI tool for monitoring CPU and memory intensive processes - showing only the essentials. Unlike generic tools like htop, brieftop specifically shows only processes that are using significant resources.
 
 ## Features
@@ -19,11 +23,20 @@ A focused Go CLI tool for monitoring CPU and memory intensive processes - showin
 
 ## Installation
 
-### Prerequisites
-- Go 1.21 or later
+### Quick Install (Recommended)
 
-### Build from source
+If you have Go 1.21 or later installed:
+
 ```bash
+go install github.com/SteiniDavid/brieftop@latest
+```
+
+This installs `brieftop` to your `$GOPATH/bin` directory. Make sure `$GOPATH/bin` is in your `PATH`.
+
+### Build from Source
+
+```bash
+git clone https://github.com/SteiniDavid/brieftop.git
 cd brieftop
 go mod tidy
 go build -o brieftop
@@ -112,4 +125,4 @@ This is a focused tool designed specifically for monitoring resource-intensive p
 
 ## License
 
-Open source - feel free to modify and distribute.
+MIT License - see [LICENSE](LICENSE) file for details.
