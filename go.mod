@@ -1,4 +1,4 @@
-module brieftop
+module github.com/SteiniDavid/brieftop
 
 go 1.21
 

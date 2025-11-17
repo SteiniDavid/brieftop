@@ -1,8 +1,7 @@
 package ui
 
 import (
-	"brieftop/internal/monitor"
-
+	"github.com/SteiniDavid/brieftop/internal/monitor"
 	"github.com/gdamore/tcell/v2"
 )
 

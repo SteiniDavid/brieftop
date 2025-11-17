@@ -1,9 +1,6 @@
 package main
 
 import (
-	"brieftop/internal/config"
-	"brieftop/internal/monitor"
-	"brieftop/internal/ui"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/SteiniDavid/brieftop/internal/config"
+	"github.com/SteiniDavid/brieftop/internal/monitor"
+	"github.com/SteiniDavid/brieftop/internal/ui"
 )
 
 func main() {
