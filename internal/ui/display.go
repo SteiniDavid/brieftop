@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SteiniDavid/brieftop/internal/monitor"
@@ -24,7 +25,20 @@ type Display struct {
 	paused        bool
 	forceRefresh  bool
 	running       bool
+	stopped       atomic.Bool
 }
+
+// Layout constants for the TUI grid.
+const (
+	headerRows       = 8  // Lines 0-7: border, header, CPU, MEM, SWAP, separator, columns, separator
+	footerRows       = 3  // Bottom border line + controls line + bottom border
+	processStartY    = 8  // First row for process data (after header)
+	borderPadding    = 2  // Left/right padding inside the border
+	processXOffset   = 3  // Left margin for process lines
+	minNameWidth     = 20 // Minimum width for process name column
+	minChildNameW    = 15 // Minimum width for child/parent name column
+	fixedColumnWidth = 38 // Width of PID + CPU + MEM + CHILD columns (before name)
+)
 
 type ConfigInterface interface {
 	GetRefreshRate() time.Duration
@@ -57,6 +71,7 @@ func (d *Display) Run() error {
 	if err = d.screen.Init(); err != nil {
 		return fmt.Errorf("failed to initialize screen: %w", err)
 	}
+	defer d.screen.Fini()
 
 	d.screen.SetStyle(tcell.StyleDefault.Background(d.colorScheme.Background).Foreground(d.colorScheme.Text))
 	d.screen.Clear()
@@ -64,21 +79,30 @@ func (d *Display) Run() error {
 	go d.updateLoop()
 	go d.inputLoop()
 
-	for d.running {
+	for {
+		d.mu.RLock()
+		running := d.running
+		d.mu.RUnlock()
+		if !running {
+			break
+		}
 		d.render()
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	d.screen.Fini()
 	return nil
 }
 
 func (d *Display) Stop() {
+	if d.stopped.Swap(true) {
+		return // already stopped
+	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.running = false
+	d.mu.Unlock()
+	// Post an interrupt to unblock PollEvent in inputLoop
 	if d.screen != nil {
-		d.screen.Fini()
+		d.screen.PostEvent(tcell.NewEventInterrupt(nil))
 	}
 }
 
@@ -86,20 +110,37 @@ func (d *Display) updateLoop() {
 	ticker := time.NewTicker(d.config.GetRefreshRate())
 	defer ticker.Stop()
 
-	for d.running {
+	for {
 		<-ticker.C
-		if !d.paused || d.forceRefresh {
+		d.mu.RLock()
+		running := d.running
+		paused := d.paused
+		force := d.forceRefresh
+		d.mu.RUnlock()
+		if !running {
+			return
+		}
+		if !paused || force {
 			d.updateProcesses()
+			d.mu.Lock()
 			d.forceRefresh = false
+			d.mu.Unlock()
 		}
 	}
 }
 
 func (d *Display) inputLoop() {
-	for d.running {
+	for {
+		d.mu.RLock()
+		running := d.running
+		d.mu.RUnlock()
+		if !running {
+			return
+		}
+
 		ev := d.screen.PollEvent()
 		if ev == nil {
-			continue
+			return
 		}
 
 		switch ev := ev.(type) {
@@ -108,6 +149,8 @@ func (d *Display) inputLoop() {
 				d.Stop()
 				return
 			}
+		case *tcell.EventInterrupt:
+			return
 		case *tcell.EventResize:
 			d.screen.Sync()
 		}
@@ -145,7 +188,7 @@ func (d *Display) adjustScrollOffset() {
 	}
 
 	_, height := d.screen.Size()
-	maxRows := height - 11 // Same calculation as in renderProcesses
+	maxRows := height - headerRows - footerRows
 
 	// Ensure scrollOffset keeps selected item visible
 	if d.selectedIndex < d.scrollOffset {
@@ -254,23 +297,22 @@ func (d *Display) renderHeader(width int) {
 	// Separator line (Line 5)
 	d.drawHorizontalLine(2, 5, width-4, "─", d.colorScheme.Border)
 
-	// Column headers with better spacing (Line 6)
-	columnHeaders := fmt.Sprintf("  %-7s %7s %10s %6s %s",
+	// Column headers aligned with process data format strings
+	columnHeaders := fmt.Sprintf("  %-7s %8s %12s %5s  %s",
 		"PID", "CPU", "MEMORY", "CHILD", "PROCESS NAME")
-	d.drawText(2, 6, width-4, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
+	d.drawText(borderPadding, 6, width-borderPadding*2, columnHeaders, d.colorScheme.GetStyle(d.colorScheme.Accent, false))
 
 	// Header separator (Line 7)
 	d.drawHorizontalLine(2, 7, width-4, "━", d.colorScheme.Border)
 }
 
 func (d *Display) renderProcesses(width, height int) {
-	startY := 8            // Start after system metrics header (lines 1-7)
-	maxRows := height - 11 // Leave space for header and footer
-	currentY := startY
+	maxRows := height - headerRows - footerRows
+	currentY := processStartY
 
 	// Render processes starting from scrollOffset
 	for i := d.scrollOffset; i < len(d.processes); i++ {
-		if currentY >= startY+maxRows {
+		if currentY >= processStartY+maxRows {
 			break
 		}
 
@@ -287,41 +329,41 @@ func (d *Display) renderProcesses(width, height int) {
 		style := d.colorScheme.GetStyle(color, isSelected)
 
 		// Calculate available space for name
-		availableNameWidth := width - 45
-		if availableNameWidth < 20 {
-			availableNameWidth = 20
+		availableNameWidth := width - fixedColumnWidth - processXOffset*2
+		if availableNameWidth < minNameWidth {
+			availableNameWidth = minNameWidth
 		}
 
-		// Main process line with proper formatting
-		processLine := fmt.Sprintf("%s %-6d %6.1f%% %9.1fMB %5d %s",
+		// Main process line — columns: icon PID CPU% MEM CHILD NAME
+		processLine := fmt.Sprintf("%s %-7d %7.1f%% %10.1fMB %5d  %s",
 			statusIcon, proc.PID, proc.CPUPercent, proc.MemoryMB, childCount,
 			truncateString(proc.Name, availableNameWidth))
 
-		d.drawText(3, currentY, width-6, processLine, style)
+		d.drawText(processXOffset, currentY, width-processXOffset*2, processLine, style)
 		currentY++
 
 		if proc.Expanded && childCount > 0 {
 			// First show the parent process itself
-			if currentY < startY+maxRows {
+			if currentY < processStartY+maxRows {
 				parentPrefix := "    ├─●" // Parent indicator
 				parentStyle := d.colorScheme.GetStyle(d.colorScheme.Text, false)
 
-				availableParentNameWidth := width - 50
-				if availableParentNameWidth < 15 {
-					availableParentNameWidth = 15
+				availableParentNameWidth := width - fixedColumnWidth - processXOffset*2 - 8
+				if availableParentNameWidth < minChildNameW {
+					availableParentNameWidth = minChildNameW
 				}
 
-				parentLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (parent)",
+				parentLine := fmt.Sprintf("%s %-6d %7.1f%% %10.1fMB       %s (parent)",
 					parentPrefix, proc.PID, proc.ParentCPU, float64(proc.ParentMemory)/(1024*1024),
 					truncateString(proc.Name, availableParentNameWidth-9))
 
-				d.drawText(3, currentY, width-6, parentLine, parentStyle)
+				d.drawText(processXOffset, currentY, width-processXOffset*2, parentLine, parentStyle)
 				currentY++
 			}
 
 			// Then show all children
 			for _, child := range proc.Children {
-				if currentY >= startY+maxRows {
+				if currentY >= processStartY+maxRows {
 					break
 				}
 
@@ -340,16 +382,16 @@ func (d *Display) renderProcesses(width, height int) {
 					typeLabel = "child"
 				}
 
-				availableChildNameWidth := width - 55
-				if availableChildNameWidth < 15 {
-					availableChildNameWidth = 15
+				availableChildNameWidth := width - fixedColumnWidth - processXOffset*2 - 12
+				if availableChildNameWidth < minChildNameW {
+					availableChildNameWidth = minChildNameW
 				}
 
-				childLine := fmt.Sprintf("%s %-5d %6.1f%% %9.1fMB      %s (%s)",
+				childLine := fmt.Sprintf("%s %-6d %7.1f%% %10.1fMB       %s (%s)",
 					prefix, child.PID, child.CPUPercent, float64(child.MemoryBytes)/(1024*1024),
 					truncateString(child.Name, availableChildNameWidth-len(typeLabel)-3), typeLabel)
 
-				d.drawText(3, currentY, width-6, childLine, childStyle)
+				d.drawText(processXOffset, currentY, width-processXOffset*2, childLine, childStyle)
 				currentY++
 			}
 		}
@@ -357,7 +399,7 @@ func (d *Display) renderProcesses(width, height int) {
 }
 
 func (d *Display) renderFooter(width, height int) {
-	footerY := height - 3
+	footerY := height - footerRows
 
 	// Footer border
 	d.drawHorizontalLine(2, footerY, width-4, "─", d.colorScheme.Border)

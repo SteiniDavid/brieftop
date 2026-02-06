@@ -72,8 +72,8 @@ func (m *Monitor) GetFilteredProcesses() ([]*ProcessInfo, error) {
 		return nil, fmt.Errorf("failed to get processes: %w", err)
 	}
 
-	var filtered []*ProcessInfo
-	allProcesses := make(map[int32]*ProcessInfo)
+	filtered := make([]*ProcessInfo, 0, len(processes)/4)
+	allProcesses := make(map[int32]*ProcessInfo, len(processes))
 	childrenMap := make(map[int32][]int32) // parent PID -> children PIDs
 
 	// First pass: collect all process info and build parent-child mapping
@@ -87,6 +87,13 @@ func (m *Monitor) GetFilteredProcesses() ([]*ProcessInfo, error) {
 		// Build parent-child mapping
 		if info.PPID != 0 {
 			childrenMap[info.PPID] = append(childrenMap[info.PPID], info.PID)
+		}
+	}
+
+	// Clean up stale processes no longer present on the system
+	for pid := range m.processes {
+		if _, alive := allProcesses[pid]; !alive {
+			delete(m.processes, pid)
 		}
 	}
 
