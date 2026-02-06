@@ -103,17 +103,16 @@ func GetStatusIcon(cpuPercent float64, isExpanded bool, hasChildren bool) string
 	if hasChildren {
 		if isExpanded {
 			return "▼"
-		} else {
-			return "▶"
 		}
+		return "▶"
 	}
 
 	if cpuPercent >= 50 {
-		return "●" // High CPU
+		return "◉" // High CPU
 	} else if cpuPercent >= 20 {
 		return "●" // Medium CPU
 	} else if cpuPercent >= 5 {
-		return "●" // Active
+		return "◎" // Active
 	}
 	return "○" // Low activity
 }
